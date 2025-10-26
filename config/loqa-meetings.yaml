@@ -1,0 +1,14 @@
+service:
+  name: loqa-meetings
+  http:
+    bind: 0.0.0.0
+    port: 8081
+
+audio:
+  recordings_path: ~/.loqa/recordings
+  sample_rate: 16000
+  channels: 1
+
+obsidian:
+  vault_path: ~/Documents/Obsidian/LoqaVault
+  meetings_folder: Meetings
