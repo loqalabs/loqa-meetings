@@ -4,6 +4,7 @@
 import Foundation
 import ScreenCaptureKit
 import CoreAudio
+import AVFoundation
 
 // MARK: - C-compatible types for FFI
 
@@ -30,6 +31,7 @@ class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
         super.init()
     }
 
+
     func start(callback: @escaping @convention(c) (UnsafePointer<Int16>?, Int32, UInt32, UInt16, UInt8) -> Void) async throws {
         self.callback = callback
 
@@ -53,8 +55,8 @@ class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
         let config = SCStreamConfiguration()
         config.capturesAudio = true
         config.excludesCurrentProcessAudio = true  // Don't capture our own audio
-        config.sampleRate = Int(sampleRate)
-        config.channelCount = Int(channels)
+        // Don't set sampleRate/channelCount - let ScreenCaptureKit use native rate
+        // We'll resample in the callback to get consistent output
 
         // Enable microphone capture on macOS 15.0+
         if #available(macOS 15.0, *) {
@@ -110,6 +112,24 @@ class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
         guard shouldProcess else { return }
         guard let callback = self.callback else { return }
 
+        // Check audio format to get ACTUAL sample rate
+        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer) else {
+            NSLog("ScreenCaptureKit: No format description")
+            return
+        }
+
+        guard let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)?.pointee else {
+            NSLog("ScreenCaptureKit: No ASBD")
+            return
+        }
+
+        // Use the ACTUAL sample rate from the buffer, not what we requested
+        let actualSampleRate = UInt32(asbd.mSampleRate)
+        let actualChannels = UInt16(asbd.mChannelsPerFrame)
+
+        // Check if audio is interleaved or non-interleaved
+        let isNonInterleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
+
         // Extract audio data from CMSampleBuffer
         guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else {
             return
@@ -131,12 +151,58 @@ class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
             return
         }
 
-        // Cast to Int16 samples (assuming 16-bit PCM)
-        let samples = data.withMemoryRebound(to: Int16.self, capacity: length / 2) { $0 }
-        let sampleCount = Int32(length / 2)
+        // ScreenCaptureKit gives us Float32 PCM
+        let floatSamples = data.withMemoryRebound(to: Float32.self, capacity: length / 4) {
+            Array(UnsafeBufferPointer(start: $0, count: length / 4))
+        }
 
-        // Call Rust callback with stream type (0=system, 1=microphone)
-        callback(samples, sampleCount, sampleRate, channels, streamType)
+        // Convert multi-channel to mono if needed
+        let monoFloats: [Float32]
+        if actualChannels > 1 {
+            let frameCount = floatSamples.count / Int(actualChannels)
+            var mono = [Float32]()
+            mono.reserveCapacity(frameCount)
+
+            if isNonInterleaved {
+                // Non-interleaved: [L0,L1,L2,...,Ln, R0,R1,R2,...,Rn]
+                // First half is channel 0, second half is channel 1, etc.
+                for frame in 0..<frameCount {
+                    var sum: Float32 = 0
+                    for ch in 0..<Int(actualChannels) {
+                        let idx = ch * frameCount + frame
+                        if idx < floatSamples.count {
+                            sum += floatSamples[idx]
+                        }
+                    }
+                    mono.append(sum / Float32(actualChannels))
+                }
+            } else {
+                // Interleaved: [L0,R0,L1,R1,L2,R2,...]
+                for frame in 0..<frameCount {
+                    var sum: Float32 = 0
+                    for ch in 0..<Int(actualChannels) {
+                        sum += floatSamples[frame * Int(actualChannels) + ch]
+                    }
+                    mono.append(sum / Float32(actualChannels))
+                }
+            }
+            monoFloats = mono
+        } else {
+            monoFloats = floatSamples
+        }
+
+        // Convert Float32 (-1.0 to 1.0) to Int16 (-32768 to 32767)
+        // Keep native sample rate - no resampling (will handle later in Rust if needed)
+        var int16Samples = [Int16](repeating: 0, count: monoFloats.count)
+        for i in 0..<monoFloats.count {
+            let clamped = max(-1.0, min(1.0, monoFloats[i]))
+            int16Samples[i] = Int16(clamped * 32767.0)
+        }
+
+        // Call Rust callback with converted audio at native sample rate
+        int16Samples.withUnsafeBufferPointer { buffer in
+            callback(buffer.baseAddress, Int32(buffer.count), actualSampleRate, 1, streamType)
+        }
     }
 
     // MARK: - SCStreamDelegate

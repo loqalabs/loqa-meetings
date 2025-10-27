@@ -10,7 +10,7 @@
 use anyhow::Result;
 use std::collections::{HashMap, HashSet, VecDeque};
 use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 use super::backend::{AudioFrame, AudioStreamSource};
 
@@ -51,6 +51,8 @@ pub struct AudioMixer {
     /// Buffers for each audio source type
     buffers: HashMap<AudioStreamSource, VecDeque<AudioFrame>>,
     current_position_ms: u64,
+    /// Accumulator for combining small frames from one source
+    frame_accumulator: HashMap<AudioStreamSource, Vec<i16>>,
 }
 
 impl AudioMixer {
@@ -64,14 +66,17 @@ impl AudioMixer {
 
         // Initialize buffers for enabled sources
         let mut buffers = HashMap::new();
+        let mut frame_accumulator = HashMap::new();
         for source in &config.enabled_sources {
             buffers.insert(*source, VecDeque::new());
+            frame_accumulator.insert(*source, Vec::new());
         }
 
         Self {
             config,
             buffers,
             current_position_ms: 0,
+            frame_accumulator,
         }
     }
 
@@ -111,13 +116,11 @@ impl AudioMixer {
     }
 
     /// Buffer a frame based on its source type
+    ///
+    /// Accumulates samples from smaller frames to create uniform-sized frames
     fn buffer_frame(&mut self, frame: AudioFrame) {
         // Check if this source is enabled
         if !self.config.enabled_sources.contains(&frame.source) {
-            debug!(
-                "Skipping frame from disabled source: {:?} at {}ms",
-                frame.source, frame.timestamp_ms
-            );
             return;
         }
 
@@ -138,15 +141,29 @@ impl AudioMixer {
             return;
         }
 
-        // Add to source-specific buffer
-        if let Some(buffer) = self.buffers.get_mut(&frame.source) {
-            debug!(
-                "Buffered {:?} frame: {}ms ({} samples)",
-                frame.source,
-                frame.timestamp_ms,
-                frame.samples.len()
-            );
-            buffer.push_back(frame);
+        // Add samples to accumulator
+        if let Some(accumulator) = self.frame_accumulator.get_mut(&frame.source) {
+            accumulator.extend_from_slice(&frame.samples);
+
+            // Target frame size (20ms at 48kHz = 960 samples)
+            let target_size = (self.config.sample_rate as f64 * 0.02) as usize;
+
+            // Create full frames when we have enough samples
+            while accumulator.len() >= target_size {
+                let full_frame_samples: Vec<i16> = accumulator.drain(..target_size).collect();
+
+                let full_frame = AudioFrame {
+                    samples: full_frame_samples,
+                    sample_rate: frame.sample_rate,
+                    channels: frame.channels,
+                    timestamp_ms: frame.timestamp_ms,
+                    source: frame.source,
+                };
+
+                if let Some(buffer) = self.buffers.get_mut(&frame.source) {
+                    buffer.push_back(full_frame);
+                }
+            }
         }
 
         // Clean up old frames to prevent unbounded buffering
@@ -178,7 +195,19 @@ impl AudioMixer {
     /// Try to mix the next chunk of audio from all enabled source buffers
     ///
     /// Returns None if there's no data available in any buffer
+    ///
+    /// IMPORTANT: Only outputs a frame when we have frames from ALL enabled sources
+    /// to avoid concatenating instead of mixing
     fn mix_next_chunk(&mut self) -> Result<Option<AudioFrame>> {
+        // Check if we have at least one frame in EACH enabled source buffer
+        let all_sources_ready = self.buffers.values().all(|buf| !buf.is_empty());
+
+        if !all_sources_ready {
+            // Don't output anything until all sources have data
+            // This prevents concatenation instead of mixing
+            return Ok(None);
+        }
+
         // Collect one frame from each source buffer
         let mut frames_to_mix: Vec<AudioFrame> = Vec::new();
 
@@ -188,26 +217,15 @@ impl AudioMixer {
             }
         }
 
-        // If no frames available, return None
-        if frames_to_mix.is_empty() {
-            return Ok(None);
+        // If we got frames from all sources, mix them
+        if frames_to_mix.len() == self.config.enabled_sources.len() {
+            let mixed = self.mix_multiple_frames(&frames_to_mix)?;
+            self.current_position_ms = mixed.timestamp_ms;
+            Ok(Some(mixed))
+        } else {
+            // Shouldn't happen since we checked all_sources_ready, but handle it
+            Ok(None)
         }
-
-        // If only one frame, return it directly (no mixing needed)
-        if frames_to_mix.len() == 1 {
-            let frame = frames_to_mix.into_iter().next().unwrap();
-            debug!(
-                "Single source {:?} at {}ms",
-                frame.source, frame.timestamp_ms
-            );
-            self.current_position_ms = frame.timestamp_ms;
-            return Ok(Some(frame));
-        }
-
-        // Mix multiple frames together
-        let mixed = self.mix_multiple_frames(&frames_to_mix)?;
-        self.current_position_ms = mixed.timestamp_ms;
-        Ok(Some(mixed))
     }
 
     /// Mix multiple audio frames together by adding their samples
@@ -225,7 +243,8 @@ impl AudioMixer {
             .min()
             .unwrap_or(0);
 
-        // Determine output length (use the longest frame)
+        // Determine output length (frames should now be uniform size due to accumulation)
+        // Use max to handle any edge cases where sizes still differ slightly
         let max_len = frames.iter().map(|f| f.samples.len()).max().unwrap_or(0);
         let mut mixed_samples = Vec::with_capacity(max_len);
 
@@ -243,13 +262,6 @@ impl AudioMixer {
             let mixed = sum.clamp(i16::MIN as i32, i16::MAX as i32);
             mixed_samples.push(mixed as i16);
         }
-
-        debug!(
-            "Mixed {} frames at {}ms: {} samples total",
-            frames.len(),
-            timestamp_ms,
-            mixed_samples.len()
-        );
 
         Ok(AudioFrame {
             samples: mixed_samples,
