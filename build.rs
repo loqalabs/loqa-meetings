@@ -68,6 +68,15 @@ fn build_swift_bridge() {
     println!("cargo:rustc-link-lib=framework=CoreAudio");
     println!("cargo:rustc-link-lib=framework=Foundation");
 
+    // Link Swift runtime libraries
+    // Find Swift toolchain path
+    let swift_lib_path = "/usr/lib/swift";
+    println!("cargo:rustc-link-search=native={}", swift_lib_path);
+
+    // Add rpath for Swift runtime
+    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", swift_lib_path);
+    println!("cargo:rustc-link-arg=-Wl,-rpath,/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx");
+
     println!("Swift bridge compiled successfully");
 }
 

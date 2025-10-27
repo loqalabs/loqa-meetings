@@ -56,11 +56,30 @@ class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
         config.sampleRate = Int(sampleRate)
         config.channelCount = Int(channels)
 
+        // Enable microphone capture on macOS 15.0+
+        if #available(macOS 15.0, *) {
+            config.captureMicrophone = true
+            config.microphoneCaptureDeviceID = nil  // Use default microphone
+            NSLog("ScreenCaptureKit: Microphone capture enabled (macOS 15.0+)")
+        } else {
+            NSLog("ScreenCaptureKit: Microphone capture not available (requires macOS 15.0+)")
+        }
+
         // Create and start stream
         stream = SCStream(filter: filter, configuration: config, delegate: self)
 
         // Add audio output
         try stream?.addStreamOutput(self, type: .audio, sampleHandlerQueue: DispatchQueue.global(qos: .userInitiated))
+
+        // Add microphone output on macOS 15.0+
+        if #available(macOS 15.0, *) {
+            do {
+                try stream?.addStreamOutput(self, type: .microphone, sampleHandlerQueue: DispatchQueue.global(qos: .userInitiated))
+                NSLog("ScreenCaptureKit: Microphone stream output added")
+            } catch {
+                NSLog("ScreenCaptureKit: Failed to add microphone output: \(error)")
+            }
+        }
 
         // Start capture
         try await stream?.startCapture()
@@ -79,7 +98,12 @@ class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
         didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
         of outputType: SCStreamOutputType
     ) {
-        guard outputType == .audio else { return }
+        // Handle both .audio (system) and .microphone streams
+        var shouldProcess = outputType == .audio
+        if #available(macOS 15.0, *) {
+            shouldProcess = shouldProcess || outputType == .microphone
+        }
+        guard shouldProcess else { return }
         guard let callback = self.callback else { return }
 
         // Extract audio data from CMSampleBuffer
