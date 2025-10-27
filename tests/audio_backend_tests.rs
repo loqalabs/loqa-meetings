@@ -2,7 +2,7 @@
 //
 // These tests verify the core audio types and interfaces work correctly.
 
-use loqa_meetings::audio::{AudioBackendConfig, AudioFrame};
+use loqa_meetings::audio::{AudioBackendConfig, AudioFrame, AudioStreamSource};
 
 #[test]
 fn test_audio_frame_creation() {
@@ -11,12 +11,14 @@ fn test_audio_frame_creation() {
         sample_rate: 16000,
         channels: 1,
         timestamp_ms: 1000,
+        source: AudioStreamSource::System,
     };
 
     assert_eq!(frame.samples.len(), 3);
     assert_eq!(frame.sample_rate, 16000);
     assert_eq!(frame.channels, 1);
     assert_eq!(frame.timestamp_ms, 1000);
+    assert_eq!(frame.source, AudioStreamSource::System);
 }
 
 #[test]
@@ -26,6 +28,7 @@ fn test_audio_frame_clone() {
         sample_rate: 48000,
         channels: 2,
         timestamp_ms: 500,
+        source: AudioStreamSource::Microphone,
     };
 
     let cloned = frame.clone();
@@ -34,6 +37,7 @@ fn test_audio_frame_clone() {
     assert_eq!(frame.sample_rate, cloned.sample_rate);
     assert_eq!(frame.channels, cloned.channels);
     assert_eq!(frame.timestamp_ms, cloned.timestamp_ms);
+    assert_eq!(frame.source, cloned.source);
 }
 
 #[test]
@@ -81,6 +85,7 @@ fn test_audio_frame_stereo_interleaved() {
         sample_rate: 44100,
         channels: 2,
         timestamp_ms: 0,
+        source: AudioStreamSource::System,
     };
 
     assert_eq!(frame.samples.len(), 6);
@@ -101,6 +106,7 @@ fn test_audio_frame_timing_calculation() {
         sample_rate,
         channels: 1,
         timestamp_ms: 0,
+        source: AudioStreamSource::System,
     };
 
     // Duration in seconds = samples / (sample_rate * channels)

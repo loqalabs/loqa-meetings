@@ -4,7 +4,7 @@
 // time-based chunks and saved to disk as WAV files.
 
 use anyhow::Result;
-use loqa_meetings::audio::{AudioFrame, ChunkConfig, ChunkedRecorder};
+use loqa_meetings::audio::{AudioFrame, AudioStreamSource, ChunkConfig, ChunkedRecorder};
 use std::path::PathBuf;
 use std::fs;
 use tempfile::TempDir;
@@ -43,6 +43,7 @@ async fn test_chunked_recording_creates_single_chunk() -> Result<()> {
             sample_rate: 16000,
             channels: 1,
             timestamp_ms: i * 100, // 100ms intervals
+            source: AudioStreamSource::System,
         };
         tx.send(frame).await?;
     }
@@ -109,6 +110,7 @@ async fn test_chunked_recording_splits_into_multiple_chunks() -> Result<()> {
             sample_rate: 16000,
             channels: 1,
             timestamp_ms: i * 100,
+            source: AudioStreamSource::System,
         };
         tx.send(frame).await?;
     }
@@ -208,6 +210,7 @@ async fn test_chunked_recording_preserves_audio_format() -> Result<()> {
             sample_rate,
             channels,
             timestamp_ms: i * 100,
+            source: AudioStreamSource::System,
         };
         tx.send(frame).await?;
     }

@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tracing::{error, info};
 
-use crate::audio::backend::AudioFrame;
+use crate::audio::backend::{AudioFrame, AudioStreamSource};
 
 // MARK: - FFI declarations
 
@@ -22,7 +22,7 @@ extern "C" {
     fn loqa_screencapture_start(
         sample_rate: u32,
         channels: u16,
-        callback: extern "C" fn(*const i16, i32, u32, u16),
+        callback: extern "C" fn(*const i16, i32, u32, u16, u8),
     ) -> i32;
 
     fn loqa_screencapture_stop() -> i32;
@@ -163,6 +163,7 @@ extern "C" fn audio_callback(
     sample_count: i32,
     sample_rate: u32,
     channels: u16,
+    stream_type: u8,
 ) {
     if samples_ptr.is_null() || sample_count <= 0 {
         return;
@@ -194,12 +195,20 @@ extern "C" fn audio_callback(
         // Copy samples
         let samples = std::slice::from_raw_parts(samples_ptr, sample_count as usize).to_vec();
 
+        // Determine stream source (0 = system, 1 = microphone)
+        let source = if stream_type == 1 {
+            AudioStreamSource::Microphone
+        } else {
+            AudioStreamSource::System
+        };
+
         // Create audio frame
         let frame = AudioFrame {
             samples,
             sample_rate,
             channels,
             timestamp_ms,
+            source,
         };
 
         // Send to channel (non-blocking)

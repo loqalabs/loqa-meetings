@@ -20,7 +20,7 @@ public func isAvailable() -> Bool {
 @available(macOS 13.0, *)
 class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
     private var stream: SCStream?
-    private var callback: (@convention(c) (UnsafePointer<Int16>?, Int32, UInt32, UInt16) -> Void)?
+    private var callback: (@convention(c) (UnsafePointer<Int16>?, Int32, UInt32, UInt16, UInt8) -> Void)?
     private let sampleRate: UInt32
     private let channels: UInt16
 
@@ -30,7 +30,7 @@ class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
         super.init()
     }
 
-    func start(callback: @escaping @convention(c) (UnsafePointer<Int16>?, Int32, UInt32, UInt16) -> Void) async throws {
+    func start(callback: @escaping @convention(c) (UnsafePointer<Int16>?, Int32, UInt32, UInt16, UInt8) -> Void) async throws {
         self.callback = callback
 
         // Get available content (windows, displays)
@@ -100,8 +100,12 @@ class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
     ) {
         // Handle both .audio (system) and .microphone streams
         var shouldProcess = outputType == .audio
+        var streamType: UInt8 = 0  // 0 = system, 1 = microphone
         if #available(macOS 15.0, *) {
-            shouldProcess = shouldProcess || outputType == .microphone
+            if outputType == .microphone {
+                shouldProcess = true
+                streamType = 1
+            }
         }
         guard shouldProcess else { return }
         guard let callback = self.callback else { return }
@@ -131,8 +135,8 @@ class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
         let samples = data.withMemoryRebound(to: Int16.self, capacity: length / 2) { $0 }
         let sampleCount = Int32(length / 2)
 
-        // Call Rust callback
-        callback(samples, sampleCount, sampleRate, channels)
+        // Call Rust callback with stream type (0=system, 1=microphone)
+        callback(samples, sampleCount, sampleRate, channels, streamType)
     }
 
     // MARK: - SCStreamDelegate
@@ -151,7 +155,7 @@ private var globalSession: AudioCaptureSession?
 public func startCapture(
     sampleRate: UInt32,
     channels: UInt16,
-    callback: @escaping @convention(c) (UnsafePointer<Int16>?, Int32, UInt32, UInt16) -> Void
+    callback: @escaping @convention(c) (UnsafePointer<Int16>?, Int32, UInt32, UInt16, UInt8) -> Void
 ) -> Int32 {
     guard #available(macOS 13.0, *) else {
         return -1  // Not available

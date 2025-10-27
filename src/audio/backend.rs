@@ -1,6 +1,15 @@
 use anyhow::Result;
 use tokio::sync::mpsc;
 
+/// Audio stream source type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AudioStreamSource {
+    /// System audio (applications, browser, etc.)
+    System,
+    /// Microphone input
+    Microphone,
+}
+
 /// Audio sample data (16-bit PCM, interleaved)
 #[derive(Debug, Clone)]
 pub struct AudioFrame {
@@ -12,6 +21,8 @@ pub struct AudioFrame {
     pub channels: u16,
     /// Timestamp in milliseconds since recording started
     pub timestamp_ms: u64,
+    /// Audio stream source (system or microphone)
+    pub source: AudioStreamSource,
 }
 
 /// Configuration for audio backend
