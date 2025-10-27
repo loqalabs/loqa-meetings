@@ -1,5 +1,4 @@
 use anyhow::Result;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// Audio sample data (16-bit PCM, interleaved)
@@ -66,13 +65,15 @@ impl AudioBackendFactory {
     /// Create audio backend based on platform and configuration
     pub fn create(
         source: AudioSource,
-        _config: AudioBackendConfig,
+        config: AudioBackendConfig,
     ) -> Result<Box<dyn AudioBackend>> {
         match source {
             AudioSource::System => {
                 #[cfg(target_os = "macos")]
                 {
-                    todo!("Create macOS ScreenCaptureKit backend")
+                    use super::macos::MacOSBackend;
+                    let backend = MacOSBackend::new(config)?;
+                    Ok(Box::new(backend))
                 }
 
                 #[cfg(not(target_os = "macos"))]

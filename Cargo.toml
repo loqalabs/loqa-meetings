@@ -17,3 +17,4 @@ clap = { version = "4", features = ["derive"] }
 config = "0.13"
 
 [dev-dependencies]
+shellexpand = "3.1"

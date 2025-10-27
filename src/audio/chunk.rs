@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::fs::{self, File};
 use std::io::BufWriter;
 use tokio::sync::mpsc;

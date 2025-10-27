@@ -1,9 +1,5 @@
-mod audio;
-mod config;
-
 use anyhow::Result;
-use audio::AudioFile;
-use config::Config;
+use loqa_meetings::{AudioFile, Config};
 use tracing::info;
 
 fn main() -> Result<()> {
