@@ -268,7 +268,6 @@ cargo run --example multichannel_test
 
 ## Related Documentation
 
-- [Audio Mixing Documentation](../docs/audio-mixing.md)
 - [NATS Protocol](../docs/nats-protocol.md)
 - [ScreenCaptureKit Bridge](../src/screencapture/bridge.swift)
 - [Main README](../README.md)
