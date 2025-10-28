@@ -15,6 +15,10 @@ hound = "3.5"  # WAV file encoding (for chunked recording)
 async-trait = "0.1"  # Async trait support
 clap = { version = "4", features = ["derive"] }
 config = "0.13"
+async-nats = "0.33"  # NATS client for pub/sub messaging
+base64 = "0.21"  # For encoding PCM audio bytes
+chrono = { version = "0.4", features = ["serde"] }  # Timestamps
+futures = "0.3"  # Stream utilities
 
 [dev-dependencies]
 shellexpand = "3.1"
