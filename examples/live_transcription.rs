@@ -2,7 +2,7 @@
 //
 // This example demonstrates the complete Week 3 pipeline:
 // 1. ScreenCaptureKit captures system audio + microphone (Swift-based mixing)
-// 2. Audio is downsampled from 48kHz to 16kHz for Whisper
+// 2. Audio is downsampled from 48kHz stereo to 16kHz mono for Whisper
 // 3. Frames are published to NATS
 // 4. loqa-core (Whisper) transcribes and publishes results back
 // 5. We listen and display transcripts in real-time
@@ -15,7 +15,7 @@
 // - NATS server running: docker run -p 4222:4222 nats
 // - loqa-core STT service running: cd loqa-core && cargo run
 //
-// Usage: cargo run --example live_recording
+// Usage: cargo run --example live_transcription
 
 use anyhow::Result;
 use futures::stream::StreamExt;
@@ -55,6 +55,38 @@ fn downsample_frame(frame: AudioFrame, target_rate: u32) -> AudioFrame {
     }
 }
 
+/// Convert stereo to mono by averaging left and right channels
+/// Input samples are interleaved: [L, R, L, R, ...]
+/// Output is mono: [M, M, M, ...]
+fn stereo_to_mono(frame: AudioFrame) -> AudioFrame {
+    if frame.channels == 1 {
+        return frame; // Already mono
+    }
+
+    if frame.channels != 2 {
+        // Only support stereo -> mono conversion
+        return frame;
+    }
+
+    let mut mono_samples = Vec::with_capacity(frame.samples.len() / 2);
+
+    // Process pairs of samples (left, right)
+    for chunk in frame.samples.chunks_exact(2) {
+        let left = chunk[0] as i32;
+        let right = chunk[1] as i32;
+        let mono = ((left + right) / 2) as i16;
+        mono_samples.push(mono);
+    }
+
+    AudioFrame {
+        samples: mono_samples,
+        sample_rate: frame.sample_rate,
+        channels: 1,
+        timestamp_ms: frame.timestamp_ms,
+        source: frame.source,
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -79,7 +111,7 @@ async fn main() -> Result<()> {
         buffer_duration_ms: 100,
     };
     let mut backend = AudioBackendFactory::create(AudioSource::System, backend_config)?;
-    info!("✅ Audio backend ready: ScreenCaptureKit (48kHz stereo → 16kHz)");
+    info!("✅ Audio backend ready: ScreenCaptureKit (48kHz stereo → 16kHz mono)");
     info!("   System audio → LEFT channel");
     info!("   Microphone → RIGHT channel");
 
@@ -156,8 +188,11 @@ async fn main() -> Result<()> {
                 // Downsample from 48kHz stereo to 16kHz stereo
                 let downsampled = downsample_frame(frame, 16000);
 
+                // Convert from stereo to mono (Whisper expects mono)
+                let mono = stereo_to_mono(downsampled);
+
                 // Convert samples to bytes
-                let pcm_bytes: Vec<u8> = downsampled
+                let pcm_bytes: Vec<u8> = mono
                     .samples
                     .iter()
                     .flat_map(|&s| s.to_le_bytes())
@@ -165,14 +200,14 @@ async fn main() -> Result<()> {
 
                 // Store for potential final frame
                 last_pcm_bytes = pcm_bytes.clone();
-                last_sample_rate = downsampled.sample_rate;
-                last_channels = downsampled.channels;
+                last_sample_rate = mono.sample_rate;
+                last_channels = mono.channels;
 
                 // Publish to NATS for transcription
                 nats.publish_audio_frame(
                     &pcm_bytes,
-                    downsampled.sample_rate,
-                    downsampled.channels,
+                    mono.sample_rate,
+                    mono.channels,
                     chunk_index,
                     false, // Not final yet
                 )
