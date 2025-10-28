@@ -62,9 +62,13 @@ async fn main() -> Result<()> {
         match tokio::time::timeout(Duration::from_millis(100), subscriber.next()).await {
             Ok(Some(msg)) => {
                 if let Ok(transcript) = serde_json::from_slice::<TranscriptMessage>(&msg.payload) {
+                    let conf_str = transcript
+                        .confidence
+                        .map(|c| format!("{:.2}", c))
+                        .unwrap_or_else(|| "N/A".to_string());
                     info!(
-                        "📝 Transcript: {} (confidence: {:.2}, partial: {})",
-                        transcript.text, transcript.confidence, transcript.partial
+                        "📝 Transcript: {} (confidence: {}, partial: {})",
+                        transcript.text, conf_str, transcript.partial
                     );
                 }
             }
@@ -83,9 +87,13 @@ async fn main() -> Result<()> {
         while let Some(msg) = subscriber.next().await {
             match serde_json::from_slice::<TranscriptMessage>(&msg.payload) {
                 Ok(transcript) => {
+                    let conf_str = transcript
+                        .confidence
+                        .map(|c| format!("{:.2}", c))
+                        .unwrap_or_else(|| "N/A".to_string());
                     info!(
-                        "📝 Final transcript: {} (confidence: {:.2})",
-                        transcript.text, transcript.confidence
+                        "📝 Final transcript: {} (confidence: {})",
+                        transcript.text, conf_str
                     );
                 }
                 Err(e) => {

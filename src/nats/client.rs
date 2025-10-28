@@ -35,12 +35,12 @@ impl NatsClient {
 
         let message = super::messages::AudioFrameMessage {
             session_id: self.meeting_id.clone(),
+            sequence: chunk_index,
             pcm: base64::engine::general_purpose::STANDARD.encode(pcm_bytes),
             sample_rate,
             channels,
             timestamp: chrono::Utc::now().to_rfc3339(),
             final_frame: is_final,
-            chunk_index,
         };
 
         let payload = serde_json::to_vec(&message)?;
@@ -59,11 +59,14 @@ impl NatsClient {
 
     /// Subscribe to transcript messages
     pub async fn subscribe_transcripts(&self) -> Result<async_nats::Subscriber> {
-        let subject = format!("stt.text.{}", self.meeting_id);
+        // Subscribe to all transcripts (partial and final)
+        // loqa-core publishes to stt.text.partial and stt.text.final
+        // We filter by session_id in the message payload
+        let subject = "stt.text.>";
 
         info!("Subscribing to transcripts on {}", subject);
 
-        let subscriber = self.client.subscribe(subject.clone())
+        let subscriber = self.client.subscribe(subject)
             .await
             .context("Failed to subscribe to transcripts")?;
 

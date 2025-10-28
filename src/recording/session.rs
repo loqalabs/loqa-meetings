@@ -34,9 +34,13 @@ impl RecordingSession {
             while let Some(msg) = subscriber.next().await {
                 match serde_json::from_slice::<TranscriptMessage>(&msg.payload) {
                     Ok(transcript) => {
+                        let conf_str = transcript
+                            .confidence
+                            .map(|c| format!("{:.2}", c))
+                            .unwrap_or_else(|| "N/A".to_string());
                         info!(
-                            "Received transcript: {} (partial={}, confidence={:.2})",
-                            transcript.text, transcript.partial, transcript.confidence
+                            "Received transcript: {} (partial={}, confidence={})",
+                            transcript.text, transcript.partial, conf_str
                         );
                         if let Err(e) = transcript_tx.send(transcript).await {
                             error!("Failed to forward transcript: {}", e);
