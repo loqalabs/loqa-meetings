@@ -28,6 +28,7 @@ extern "C" {
     fn loqa_screencapture_stop() -> i32;
 }
 
+
 // MARK: - Safe Rust interface
 
 /// Check if ScreenCaptureKit is available on this system
@@ -75,9 +76,12 @@ impl ScreenCaptureSession {
             self.sample_rate, self.channels
         );
 
-        // Create channel for audio frames
+        // Create channel for audio frames (stereo output now)
         let (tx, rx) = mpsc::channel(100);
-        self.audio_tx = Some(tx.clone());
+
+        // Store tx for global access in callback
+        let tx_ptr = Box::into_raw(Box::new(tx));
+        self.audio_tx = Some(unsafe { (*tx_ptr).clone() });
 
         // Initialize start time
         let now_ms = std::time::SystemTime::now()
@@ -87,12 +91,11 @@ impl ScreenCaptureSession {
         *self.start_time_ms.lock().unwrap() = Some(now_ms);
 
         // Store context for callback
-        let tx_ptr = Box::into_raw(Box::new(tx));
         let start_time_ptr = Arc::into_raw(Arc::clone(&self.start_time_ms));
 
         unsafe {
-            GLOBAL_AUDIO_TX = tx_ptr;
             GLOBAL_START_TIME = start_time_ptr as *mut _;
+            GLOBAL_AUDIO_TX = tx_ptr;
         }
 
         // Start capture
@@ -121,13 +124,13 @@ impl ScreenCaptureSession {
 
         // Clean up global pointers
         unsafe {
-            if !GLOBAL_AUDIO_TX.is_null() {
-                let _ = Box::from_raw(GLOBAL_AUDIO_TX);
-                GLOBAL_AUDIO_TX = std::ptr::null_mut();
-            }
             if !GLOBAL_START_TIME.is_null() {
                 let _ = Arc::from_raw(GLOBAL_START_TIME);
                 GLOBAL_START_TIME = std::ptr::null_mut();
+            }
+            if !GLOBAL_AUDIO_TX.is_null() {
+                let _ = Box::from_raw(GLOBAL_AUDIO_TX);
+                GLOBAL_AUDIO_TX = std::ptr::null_mut();
             }
         }
 
@@ -150,12 +153,16 @@ impl ScreenCaptureSession {
 }
 
 // MARK: - Audio callback
-
-#[cfg(target_os = "macos")]
-static mut GLOBAL_AUDIO_TX: *mut mpsc::Sender<AudioFrame> = std::ptr::null_mut();
+//
+// Swift now handles stereo mixing via AVAudioSourceNode with ring buffers.
+// This callback receives stereo Int16 frames directly (system→left, mic→right).
+// We just forward them to the Rust channel.
 
 #[cfg(target_os = "macos")]
 static mut GLOBAL_START_TIME: *mut Mutex<Option<u64>> = std::ptr::null_mut();
+
+#[cfg(target_os = "macos")]
+static mut GLOBAL_AUDIO_TX: *mut mpsc::Sender<AudioFrame> = std::ptr::null_mut();
 
 #[cfg(target_os = "macos")]
 extern "C" fn audio_callback(
@@ -163,20 +170,17 @@ extern "C" fn audio_callback(
     sample_count: i32,
     sample_rate: u32,
     channels: u16,
-    stream_type: u8,
+    _stream_type: u8, // Unused now - Swift handles mixing
 ) {
     if samples_ptr.is_null() || sample_count <= 0 {
         return;
     }
 
     unsafe {
-        // Get global sender
         if GLOBAL_AUDIO_TX.is_null() {
-            error!("Audio callback called but sender is null");
+            error!("Audio callback called but channel is null");
             return;
         }
-
-        let tx = &*GLOBAL_AUDIO_TX;
 
         // Get start time
         let start_time_ms = if GLOBAL_START_TIME.is_null() {
@@ -192,27 +196,21 @@ extern "C" fn audio_callback(
             .as_millis() as u64;
         let timestamp_ms = now_ms - start_time_ms;
 
-        // Copy samples
+        // Copy stereo samples (already mixed by Swift)
         let samples = std::slice::from_raw_parts(samples_ptr, sample_count as usize).to_vec();
 
-        // Determine stream source (0 = system, 1 = microphone)
-        let source = if stream_type == 1 {
-            AudioStreamSource::Microphone
-        } else {
-            AudioStreamSource::System
-        };
-
-        // Create audio frame
+        // Create stereo frame
         let frame = AudioFrame {
             samples,
             sample_rate,
             channels,
             timestamp_ms,
-            source,
+            source: AudioStreamSource::System, // Mark as system for mixed frames
         };
 
-        // Send to channel (non-blocking)
-        if let Err(e) = tx.try_send(frame) {
+        // Send frame
+        let tx = &(*GLOBAL_AUDIO_TX);
+        if let Err(e) = tx.blocking_send(frame) {
             error!("Failed to send audio frame: {}", e);
         }
     }

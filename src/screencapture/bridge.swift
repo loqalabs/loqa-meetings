@@ -6,6 +6,67 @@ import ScreenCaptureKit
 import CoreAudio
 import AVFoundation
 
+// MARK: - Ring Buffer for audio samples
+
+/// Simple thread-safe ring buffer for audio samples
+class RingBuffer {
+    private var buffer: [Float]
+    private var readIndex: Int = 0
+    private var writeIndex: Int = 0
+    private var availableFrames: Int = 0
+    private let capacity: Int
+    private let lock = NSLock()
+
+    init(capacity: Int) {
+        self.capacity = capacity
+        self.buffer = [Float](repeating: 0, count: capacity)
+    }
+
+    /// Write samples to the ring buffer
+    /// Returns the number of frames actually written
+    func write(_ samples: [Float]) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let framesToWrite = min(samples.count, capacity - availableFrames)
+        guard framesToWrite > 0 else { return 0 }
+
+        for i in 0..<framesToWrite {
+            buffer[writeIndex] = samples[i]
+            writeIndex = (writeIndex + 1) % capacity
+        }
+
+        availableFrames += framesToWrite
+        return framesToWrite
+    }
+
+    /// Read samples from the ring buffer
+    /// If fewer than requested frames are available, returns what's available
+    /// Remaining samples in output array are left as-is (caller should zero-fill first)
+    func read(count: Int) -> [Float] {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let framesToRead = min(count, availableFrames)
+        var result = [Float](repeating: 0, count: framesToRead)
+
+        for i in 0..<framesToRead {
+            result[i] = buffer[readIndex]
+            readIndex = (readIndex + 1) % capacity
+        }
+
+        availableFrames -= framesToRead
+        return result
+    }
+
+    /// Get the number of frames currently available
+    var available: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return availableFrames
+    }
+}
+
 // MARK: - C-compatible types for FFI
 
 @_cdecl("loqa_screencapture_is_available")
@@ -25,6 +86,17 @@ class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
     private let sampleRate: UInt32
     private let channels: UInt16
 
+    // AVAudioEngine for mixing
+    private let engine = AVAudioEngine()
+    private var sourceNode: AVAudioSourceNode?
+
+    // Ring buffers for each source (sized for ~2 seconds at 48kHz)
+    private let systemRingBuffer = RingBuffer(capacity: 96000)
+    private let micRingBuffer = RingBuffer(capacity: 96000)
+
+    // Mix format: 48kHz stereo
+    private let mixFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
+
     init(sampleRate: UInt32, channels: UInt16) {
         self.sampleRate = sampleRate
         self.channels = channels
@@ -35,45 +107,88 @@ class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
     func start(callback: @escaping @convention(c) (UnsafePointer<Int16>?, Int32, UInt32, UInt16, UInt8) -> Void) async throws {
         self.callback = callback
 
-        // Get available content (windows, displays)
+        // Create AVAudioSourceNode that pulls from ring buffers
+        let systemRB = self.systemRingBuffer
+        let micRB = self.micRingBuffer
+        let cb = callback
+
+        sourceNode = AVAudioSourceNode(format: mixFormat) { _, _, frameCount, audioBufferList in
+            let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
+
+            guard let buffer = ablPointer.first else { return noErr }
+            guard let data = buffer.mData else { return noErr }
+
+            // Zero-fill output buffer
+            memset(data, 0, Int(buffer.mDataByteSize))
+
+            // Pull frames from both ring buffers
+            let sysFrames = systemRB.read(count: Int(frameCount))
+            let micFrames = micRB.read(count: Int(frameCount))
+
+            // Mix into stereo: system→left, mic→right
+            // Apply 2x gain to boost volume
+            let gain: Float = 2.0
+            let floatPtr = data.assumingMemoryBound(to: Float.self)
+            for i in 0..<Int(frameCount) {
+                let leftSample = i < sysFrames.count ? sysFrames[i] * gain : 0.0
+                let rightSample = i < micFrames.count ? micFrames[i] * gain : 0.0
+                floatPtr[i * 2] = leftSample      // Left channel
+                floatPtr[i * 2 + 1] = rightSample // Right channel
+            }
+
+            // Convert Float32 stereo to Int16 and call Rust callback
+            var int16Samples = [Int16](repeating: 0, count: Int(frameCount) * 2)
+            for i in 0..<(Int(frameCount) * 2) {
+                let clamped = max(-1.0, min(1.0, floatPtr[i]))
+                int16Samples[i] = Int16(clamped * 32767.0)
+            }
+
+            int16Samples.withUnsafeBufferPointer { bufferPtr in
+                cb(bufferPtr.baseAddress, Int32(int16Samples.count), 48000, 2, 0)
+            }
+
+            return noErr
+        }
+
+        // Attach and connect source node to engine
+        engine.attach(sourceNode!)
+        engine.connect(sourceNode!, to: engine.mainMixerNode, format: mixFormat)
+
+        // Mute the output to prevent speaker feedback (volume = 0)
+        engine.mainMixerNode.outputVolume = 0.0
+
+        // Start engine (output muted - no speaker feedback)
+        try engine.start()
+        NSLog("AVAudioEngine started for mixing (output muted)")
+
+        // Start ScreenCaptureKit capture (will push to ring buffers)
         let content = try await SCShareableContent.excludingDesktopWindows(
             false,
             onScreenWindowsOnly: true
         )
 
-        // Use the main display for system audio capture
         guard let display = content.displays.first else {
             throw NSError(domain: "ScreenCapture", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "No displays available"
             ])
         }
 
-        // Create filter to capture display (system audio)
         let filter = SCContentFilter(display: display, excludingWindows: [])
-
-        // Configure stream for audio only
         let config = SCStreamConfiguration()
         config.capturesAudio = true
-        config.excludesCurrentProcessAudio = true  // Don't capture our own audio
-        // Don't set sampleRate/channelCount - let ScreenCaptureKit use native rate
-        // We'll resample in the callback to get consistent output
+        config.excludesCurrentProcessAudio = true
 
-        // Enable microphone capture on macOS 15.0+
         if #available(macOS 15.0, *) {
             config.captureMicrophone = true
-            config.microphoneCaptureDeviceID = nil  // Use default microphone
+            config.microphoneCaptureDeviceID = nil
             NSLog("ScreenCaptureKit: Microphone capture enabled (macOS 15.0+)")
         } else {
             NSLog("ScreenCaptureKit: Microphone capture not available (requires macOS 15.0+)")
         }
 
-        // Create and start stream
         stream = SCStream(filter: filter, configuration: config, delegate: self)
-
-        // Add audio output
         try stream?.addStreamOutput(self, type: .audio, sampleHandlerQueue: DispatchQueue.global(qos: .userInitiated))
 
-        // Add microphone output on macOS 15.0+
         if #available(macOS 15.0, *) {
             do {
                 try stream?.addStreamOutput(self, type: .microphone, sampleHandlerQueue: DispatchQueue.global(qos: .userInitiated))
@@ -83,14 +198,23 @@ class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
             }
         }
 
-        // Start capture
         try await stream?.startCapture()
     }
 
     func stop() async throws {
+        // Stop ScreenCaptureKit
         try await stream?.stopCapture()
         stream = nil
+
+        // Stop AVAudioEngine
+        engine.stop()
+        if let node = sourceNode {
+            engine.detach(node)
+        }
+        sourceNode = nil
+
         callback = nil
+        NSLog("AudioCaptureSession stopped")
     }
 
     // MARK: - SCStreamOutput (audio callback)
@@ -100,40 +224,26 @@ class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
         didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
         of outputType: SCStreamOutputType
     ) {
-        // Handle both .audio (system) and .microphone streams
-        var shouldProcess = outputType == .audio
-        var streamType: UInt8 = 0  // 0 = system, 1 = microphone
+        // Determine which ring buffer to write to
+        var isSystemAudio = outputType == .audio
+        var isMicrophone = false
         if #available(macOS 15.0, *) {
             if outputType == .microphone {
-                shouldProcess = true
-                streamType = 1
+                isMicrophone = true
+                isSystemAudio = false
             }
         }
-        guard shouldProcess else { return }
-        guard let callback = self.callback else { return }
-
-        // Check audio format to get ACTUAL sample rate
-        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer) else {
-            NSLog("ScreenCaptureKit: No format description")
-            return
-        }
-
-        guard let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)?.pointee else {
-            NSLog("ScreenCaptureKit: No ASBD")
-            return
-        }
-
-        // Use the ACTUAL sample rate from the buffer, not what we requested
-        let actualSampleRate = UInt32(asbd.mSampleRate)
-        let actualChannels = UInt16(asbd.mChannelsPerFrame)
-
-        // Check if audio is interleaved or non-interleaved
-        let isNonInterleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
+        guard isSystemAudio || isMicrophone else { return }
 
         // Extract audio data from CMSampleBuffer
-        guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else {
+        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)?.pointee,
+              let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else {
             return
         }
+
+        let actualChannels = UInt16(asbd.mChannelsPerFrame)
+        let isNonInterleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
 
         var length: Int = 0
         var dataPointer: UnsafeMutablePointer<Int8>?
@@ -146,10 +256,7 @@ class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
             dataPointerOut: &dataPointer
         )
 
-        guard status == kCMBlockBufferNoErr,
-              let data = dataPointer else {
-            return
-        }
+        guard status == kCMBlockBufferNoErr, let data = dataPointer else { return }
 
         // ScreenCaptureKit gives us Float32 PCM
         let floatSamples = data.withMemoryRebound(to: Float32.self, capacity: length / 4) {
@@ -164,8 +271,7 @@ class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
             mono.reserveCapacity(frameCount)
 
             if isNonInterleaved {
-                // Non-interleaved: [L0,L1,L2,...,Ln, R0,R1,R2,...,Rn]
-                // First half is channel 0, second half is channel 1, etc.
+                // Non-interleaved: [L0,L1,...,Ln, R0,R1,...,Rn]
                 for frame in 0..<frameCount {
                     var sum: Float32 = 0
                     for ch in 0..<Int(actualChannels) {
@@ -177,7 +283,7 @@ class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
                     mono.append(sum / Float32(actualChannels))
                 }
             } else {
-                // Interleaved: [L0,R0,L1,R1,L2,R2,...]
+                // Interleaved: [L0,R0,L1,R1,...]
                 for frame in 0..<frameCount {
                     var sum: Float32 = 0
                     for ch in 0..<Int(actualChannels) {
@@ -191,17 +297,16 @@ class AudioCaptureSession: NSObject, SCStreamDelegate, SCStreamOutput {
             monoFloats = floatSamples
         }
 
-        // Convert Float32 (-1.0 to 1.0) to Int16 (-32768 to 32767)
-        // Keep native sample rate - no resampling (will handle later in Rust if needed)
-        var int16Samples = [Int16](repeating: 0, count: monoFloats.count)
-        for i in 0..<monoFloats.count {
-            let clamped = max(-1.0, min(1.0, monoFloats[i]))
-            int16Samples[i] = Int16(clamped * 32767.0)
+        // Write to appropriate ring buffer
+        let written: Int
+        if isSystemAudio {
+            written = systemRingBuffer.write(monoFloats)
+        } else {
+            written = micRingBuffer.write(monoFloats)
         }
 
-        // Call Rust callback with converted audio at native sample rate
-        int16Samples.withUnsafeBufferPointer { buffer in
-            callback(buffer.baseAddress, Int32(buffer.count), actualSampleRate, 1, streamType)
+        if written < monoFloats.count {
+            NSLog("ScreenCaptureKit: Ring buffer full, dropped \(monoFloats.count - written) frames from \(isMicrophone ? "mic" : "system")")
         }
     }
 
