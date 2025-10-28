@@ -262,14 +262,14 @@ async fn main() -> Result<()> {
     info!("⏹️  Audio capture stopped");
 
     // 9. Wait for final transcripts
-    info!("⏳ Waiting for final transcripts (5s)...");
-    sleep(Duration::from_secs(5)).await;
+    info!("⏳ Waiting for final transcripts (10s)...");
+    sleep(Duration::from_secs(10)).await;
 
     // Signal transcript listener to stop
     stop_flag.store(true, Ordering::Relaxed);
 
     // Wait for transcript listener to finish
-    match timeout(Duration::from_secs(2), transcript_handle).await {
+    match timeout(Duration::from_secs(3), transcript_handle).await {
         Ok(Ok(_)) => info!("✅ Transcript listener completed"),
         Ok(Err(e)) => info!("❌ Transcript listener error: {}", e),
         Err(_) => info!("⏱️  Transcript listener timeout"),
