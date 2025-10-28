@@ -20,7 +20,9 @@
 use anyhow::Result;
 use futures::stream::StreamExt;
 use hound::{WavSpec, WavWriter};
-use loqa_meetings::{AudioBackendConfig, AudioBackendFactory, AudioFrame, AudioSource, NatsClient, TranscriptMessage};
+use loqa_meetings::{
+    AudioBackendConfig, AudioBackendFactory, AudioFrame, AudioSource, NatsClient, TranscriptMessage,
+};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -111,8 +113,8 @@ async fn main() -> Result<()> {
     // ScreenCaptureKit captures at 48kHz stereo (System→Left, Mic→Right)
     // Swift handles the mixing with zero-fill for silent sources
     let backend_config = AudioBackendConfig {
-        target_sample_rate: 48000,  // Native macOS rate (will downsample to 16kHz)
-        target_channels: 2,          // Stereo (System→L, Mic→R)
+        target_sample_rate: 48000, // Native macOS rate (will downsample to 16kHz)
+        target_channels: 2,        // Stereo (System→L, Mic→R)
         buffer_duration_ms: 100,
     };
     let mut backend = AudioBackendFactory::create(AudioSource::System, backend_config)?;
@@ -131,14 +133,20 @@ async fn main() -> Result<()> {
         loop {
             match timeout(Duration::from_millis(500), subscriber.next()).await {
                 Ok(Some(msg)) => {
-                    if let Ok(transcript) = serde_json::from_slice::<TranscriptMessage>(&msg.payload) {
+                    if let Ok(transcript) =
+                        serde_json::from_slice::<TranscriptMessage>(&msg.payload)
+                    {
                         transcript_count += 1;
                         let conf_str = transcript
                             .confidence
                             .map(|c| format!("{:.2}%", c * 100.0))
                             .unwrap_or_else(|| "N/A".to_string());
 
-                        let status = if transcript.partial { "PARTIAL" } else { "FINAL  " };
+                        let status = if transcript.partial {
+                            "PARTIAL"
+                        } else {
+                            "FINAL  "
+                        };
 
                         info!(
                             "📝 [{}] #{}: \"{}\" (confidence: {})",
@@ -203,11 +211,8 @@ async fn main() -> Result<()> {
                 all_processed_samples.extend_from_slice(&mono.samples);
 
                 // Convert samples to bytes
-                let pcm_bytes: Vec<u8> = mono
-                    .samples
-                    .iter()
-                    .flat_map(|&s| s.to_le_bytes())
-                    .collect();
+                let pcm_bytes: Vec<u8> =
+                    mono.samples.iter().flat_map(|&s| s.to_le_bytes()).collect();
 
                 // Store for potential final frame
                 last_pcm_bytes = pcm_bytes.clone();

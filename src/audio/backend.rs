@@ -39,9 +39,9 @@ pub struct AudioBackendConfig {
 impl Default for AudioBackendConfig {
     fn default() -> Self {
         Self {
-            target_sample_rate: 16000,  // 16kHz for Whisper
-            target_channels: 1,          // Mono
-            buffer_duration_ms: 100,     // 100ms buffers
+            target_sample_rate: 16000, // 16kHz for Whisper
+            target_channels: 1,        // Mono
+            buffer_duration_ms: 100,   // 100ms buffers
         }
     }
 }

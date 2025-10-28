@@ -44,9 +44,15 @@ fn test_audio_frame_clone() {
 fn test_audio_backend_config_default() {
     let config = AudioBackendConfig::default();
 
-    assert_eq!(config.target_sample_rate, 16000, "Default should be 16kHz for Whisper");
+    assert_eq!(
+        config.target_sample_rate, 16000,
+        "Default should be 16kHz for Whisper"
+    );
     assert_eq!(config.target_channels, 1, "Default should be mono");
-    assert_eq!(config.buffer_duration_ms, 100, "Default buffer should be 100ms");
+    assert_eq!(
+        config.buffer_duration_ms, 100,
+        "Default buffer should be 100ms"
+    );
 }
 
 #[test]
@@ -110,8 +116,12 @@ fn test_audio_frame_timing_calculation() {
     };
 
     // Duration in seconds = samples / (sample_rate * channels)
-    let duration_secs = frame.samples.len() as f64 / (frame.sample_rate as f64 * frame.channels as f64);
-    assert!((duration_secs - 0.1).abs() < 0.001, "Duration should be 100ms");
+    let duration_secs =
+        frame.samples.len() as f64 / (frame.sample_rate as f64 * frame.channels as f64);
+    assert!(
+        (duration_secs - 0.1).abs() < 0.001,
+        "Duration should be 100ms"
+    );
 }
 
 #[test]

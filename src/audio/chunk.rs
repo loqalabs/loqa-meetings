@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
-use std::path::PathBuf;
 use std::fs::{self, File};
 use std::io::BufWriter;
+use std::path::PathBuf;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
@@ -21,7 +21,7 @@ pub struct ChunkConfig {
 impl ChunkConfig {
     pub fn new(meeting_id: String, output_dir: PathBuf) -> Self {
         Self {
-            chunk_duration_secs: 300,  // 5 minutes default
+            chunk_duration_secs: 300, // 5 minutes default
             output_dir,
             meeting_id,
         }
@@ -60,8 +60,7 @@ pub struct ChunkedRecorder {
 impl ChunkedRecorder {
     pub fn new(config: ChunkConfig) -> Result<Self> {
         // Create output directory if it doesn't exist
-        fs::create_dir_all(&config.output_dir)
-            .context("Failed to create output directory")?;
+        fs::create_dir_all(&config.output_dir).context("Failed to create output directory")?;
 
         info!(
             "Chunked recorder initialized: {} (chunks: {}s each)",
@@ -210,7 +209,8 @@ impl ChunkWriter {
     fn write_frame(&mut self, frame: &AudioFrame) -> Result<()> {
         if let Some(writer) = &mut self.writer {
             for &sample in &frame.samples {
-                writer.write_sample(sample)
+                writer
+                    .write_sample(sample)
                     .context("Failed to write sample to WAV")?;
             }
 
@@ -223,8 +223,7 @@ impl ChunkWriter {
 
     fn finish(mut self) -> Result<ChunkMetadata> {
         if let Some(writer) = self.writer.take() {
-            writer.finalize()
-                .context("Failed to finalize WAV file")?;
+            writer.finalize().context("Failed to finalize WAV file")?;
         }
 
         Ok(self.metadata.clone())

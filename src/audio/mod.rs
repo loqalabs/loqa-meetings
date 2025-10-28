@@ -5,6 +5,9 @@ pub mod file;
 #[cfg(target_os = "macos")]
 pub mod macos;
 
-pub use backend::{AudioBackend, AudioBackendConfig, AudioBackendFactory, AudioFrame, AudioSource, AudioStreamSource};
+pub use backend::{
+    AudioBackend, AudioBackendConfig, AudioBackendFactory, AudioFrame, AudioSource,
+    AudioStreamSource,
+};
 pub use chunk::{ChunkConfig, ChunkMetadata, ChunkedRecorder};
 pub use file::AudioFile;

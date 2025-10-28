@@ -19,6 +19,12 @@ async-nats = "0.33"  # NATS client for pub/sub messaging
 base64 = "0.21"  # For encoding PCM audio bytes
 chrono = { version = "0.4", features = ["serde"] }  # Timestamps
 futures = "0.3"  # Stream utilities
+uuid = { version = "1", features = ["v4", "serde"] }  # Meeting ID generation
+
+# Week 4: HTTP API
+axum = "0.7"  # Modern async web framework
+tower = "0.4"  # Middleware foundation
+tower-http = { version = "0.5", features = ["fs", "trace", "cors"] }  # HTTP middleware
 
 [dev-dependencies]
 shellexpand = "3.1"

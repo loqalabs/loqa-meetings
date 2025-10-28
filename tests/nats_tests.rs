@@ -101,7 +101,8 @@ fn test_pcm_encoding_roundtrip() {
     let original_samples: Vec<i16> = vec![100, -200, 300, -400];
 
     // Convert to bytes
-    let pcm_bytes: Vec<u8> = original_samples.iter()
+    let pcm_bytes: Vec<u8> = original_samples
+        .iter()
         .flat_map(|&s| s.to_le_bytes())
         .collect();
 

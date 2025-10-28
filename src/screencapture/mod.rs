@@ -28,7 +28,6 @@ extern "C" {
     fn loqa_screencapture_stop() -> i32;
 }
 
-
 // MARK: - Safe Rust interface
 
 /// Check if ScreenCaptureKit is available on this system
@@ -99,16 +98,14 @@ impl ScreenCaptureSession {
         }
 
         // Start capture
-        let result = unsafe {
-            loqa_screencapture_start(
-                self.sample_rate,
-                self.channels,
-                audio_callback,
-            )
-        };
+        let result =
+            unsafe { loqa_screencapture_start(self.sample_rate, self.channels, audio_callback) };
 
         if result != 0 {
-            bail!("Failed to start ScreenCaptureKit capture (error code: {})", result);
+            bail!(
+                "Failed to start ScreenCaptureKit capture (error code: {})",
+                result
+            );
         }
 
         info!("ScreenCaptureKit capture started successfully");
@@ -138,7 +135,10 @@ impl ScreenCaptureSession {
         *self.start_time_ms.lock().unwrap() = None;
 
         if result != 0 {
-            bail!("Failed to stop ScreenCaptureKit capture (error code: {})", result);
+            bail!(
+                "Failed to stop ScreenCaptureKit capture (error code: {})",
+                result
+            );
         }
 
         info!("ScreenCaptureKit capture stopped successfully");

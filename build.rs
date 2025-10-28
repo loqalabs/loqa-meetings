@@ -48,7 +48,11 @@ fn build_swift_bridge() {
     let lib_file = PathBuf::from(&out_dir).join("libloqa_screencapture.a");
 
     let output = Command::new("ar")
-        .args(&["rcs", lib_file.to_str().unwrap(), obj_file.to_str().unwrap()])
+        .args(&[
+            "rcs",
+            lib_file.to_str().unwrap(),
+            obj_file.to_str().unwrap(),
+        ])
         .output()
         .expect("Failed to execute ar");
 

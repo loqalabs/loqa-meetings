@@ -15,8 +15,7 @@
 use anyhow::Result;
 use clap::Parser;
 use loqa_meetings::audio::{
-    AudioBackendConfig, AudioBackendFactory, AudioSource,
-    ChunkConfig, ChunkedRecorder,
+    AudioBackendConfig, AudioBackendFactory, AudioSource, ChunkConfig, ChunkedRecorder,
 };
 use std::path::PathBuf;
 use std::time::Duration;
@@ -47,9 +46,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize logging
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .init();
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
     let args = Args::parse();
 
@@ -66,17 +63,14 @@ async fn main() -> Result<()> {
 
     // Create audio backend configuration
     let backend_config = AudioBackendConfig {
-        target_sample_rate: 16000,  // 16kHz for Whisper
-        target_channels: 1,          // Mono
-        buffer_duration_ms: 100,     // 100ms buffers
+        target_sample_rate: 16000, // 16kHz for Whisper
+        target_channels: 1,        // Mono
+        buffer_duration_ms: 100,   // 100ms buffers
     };
 
     // Create backend (macOS ScreenCaptureKit for system audio)
     info!("Creating macOS ScreenCaptureKit backend...");
-    let mut backend = AudioBackendFactory::create(
-        AudioSource::System,
-        backend_config,
-    )?;
+    let mut backend = AudioBackendFactory::create(AudioSource::System, backend_config)?;
 
     info!("Backend created: {}", backend.name());
 
@@ -93,12 +87,13 @@ async fn main() -> Result<()> {
     info!("Starting audio capture...");
     let audio_rx = backend.start().await?;
 
-    info!("Recording started! Press Ctrl+C to stop early, or wait {} seconds", args.duration);
+    info!(
+        "Recording started! Press Ctrl+C to stop early, or wait {} seconds",
+        args.duration
+    );
 
     // Spawn recording task
-    let recording_handle = tokio::spawn(async move {
-        recorder.record(audio_rx).await
-    });
+    let recording_handle = tokio::spawn(async move { recorder.record(audio_rx).await });
 
     // Wait for duration
     sleep(Duration::from_secs(args.duration)).await;
@@ -125,8 +120,13 @@ async fn main() -> Result<()> {
         );
     }
 
-    info!("Total recording duration: {:.1}s",
-        metadata.last().map(|c| c.end_ms as f64 / 1000.0).unwrap_or(0.0));
+    info!(
+        "Total recording duration: {:.1}s",
+        metadata
+            .last()
+            .map(|c| c.end_ms as f64 / 1000.0)
+            .unwrap_or(0.0)
+    );
 
     Ok(())
 }

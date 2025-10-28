@@ -45,13 +45,17 @@ impl NatsClient {
 
         let payload = serde_json::to_vec(&message)?;
 
-        self.client.publish(subject.clone(), payload.into())
+        self.client
+            .publish(subject.clone(), payload.into())
             .await
             .context("Failed to publish audio frame")?;
 
         info!(
             "Published audio frame to {} (chunk={}, bytes={}, final={})",
-            subject, chunk_index, pcm_bytes.len(), is_final
+            subject,
+            chunk_index,
+            pcm_bytes.len(),
+            is_final
         );
 
         Ok(())
@@ -66,7 +70,9 @@ impl NatsClient {
 
         info!("Subscribing to transcripts on {}", subject);
 
-        let subscriber = self.client.subscribe(subject)
+        let subscriber = self
+            .client
+            .subscribe(subject)
             .await
             .context("Failed to subscribe to transcripts")?;
 

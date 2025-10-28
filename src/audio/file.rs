@@ -24,8 +24,7 @@ impl AudioFile {
         info!("Opening audio file: {}", path.display());
 
         // Open the file
-        let file = File::open(path)
-            .context("Failed to open audio file")?;
+        let file = File::open(path).context("Failed to open audio file")?;
 
         // Create a media source stream
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
@@ -40,7 +39,12 @@ impl AudioFile {
 
         // Probe the media source for a format
         let probed = symphonia::default::get_probe()
-            .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+            .format(
+                &hint,
+                mss,
+                &FormatOptions::default(),
+                &MetadataOptions::default(),
+            )
             .context("Failed to probe audio format")?;
 
         let mut format = probed.format;
@@ -53,7 +57,9 @@ impl AudioFile {
             .context("No audio tracks found")?;
 
         let track_id = track.id;
-        let sample_rate = track.codec_params.sample_rate
+        let sample_rate = track
+            .codec_params
+            .sample_rate
             .context("Sample rate not specified")?;
 
         // Create a decoder for the track
@@ -69,7 +75,9 @@ impl AudioFile {
             // Get the next packet from the format reader
             let packet = match format.next_packet() {
                 Ok(packet) => packet,
-                Err(SymphoniaError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                Err(SymphoniaError::IoError(e))
+                    if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+                {
                     break;
                 }
                 Err(SymphoniaError::ResetRequired) => {

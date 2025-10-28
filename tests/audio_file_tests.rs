@@ -37,13 +37,17 @@ fn test_audio_file_sample_count_matches_duration() -> Result<()> {
     let audio = AudioFile::open(&path)?;
 
     // Calculate expected sample count from duration
-    let expected_samples = (audio.duration_seconds * audio.sample_rate as f64 * audio.channels as f64) as usize;
+    let expected_samples =
+        (audio.duration_seconds * audio.sample_rate as f64 * audio.channels as f64) as usize;
 
     // Allow for small rounding errors (within 1 frame)
     let diff = (audio.samples.len() as i64 - expected_samples as i64).abs();
-    assert!(diff < audio.channels as i64 * 1000,
-            "Sample count ({}) should match duration calculation ({})",
-            audio.samples.len(), expected_samples);
+    assert!(
+        diff < audio.channels as i64 * 1000,
+        "Sample count ({}) should match duration calculation ({})",
+        audio.samples.len(),
+        expected_samples
+    );
 
     Ok(())
 }
@@ -70,11 +74,18 @@ fn test_audio_file_metadata() -> Result<()> {
     println!("  Total samples: {}", audio.samples.len());
 
     // Basic sanity checks
-    assert!(audio.duration_seconds < 10.0, "Test file should be short (< 10s)");
-    assert!(audio.sample_rate >= 8000 && audio.sample_rate <= 48000,
-            "Sample rate should be reasonable");
-    assert!(audio.channels >= 1 && audio.channels <= 2,
-            "Should be mono or stereo");
+    assert!(
+        audio.duration_seconds < 10.0,
+        "Test file should be short (< 10s)"
+    );
+    assert!(
+        audio.sample_rate >= 8000 && audio.sample_rate <= 48000,
+        "Sample rate should be reasonable"
+    );
+    assert!(
+        audio.channels >= 1 && audio.channels <= 2,
+        "Should be mono or stereo"
+    );
 
     Ok(())
 }
@@ -87,13 +98,18 @@ fn test_audio_file_resample_to_mono_16khz() -> Result<()> {
     // If the file is already 16kHz mono, resampling should work
     if audio.sample_rate == 16000 && audio.channels == 1 {
         let resampled = audio.resample_to_mono_16khz()?;
-        assert_eq!(resampled.len(), audio.samples.len(),
-                   "16kHz mono should return original samples");
+        assert_eq!(
+            resampled.len(),
+            audio.samples.len(),
+            "16kHz mono should return original samples"
+        );
     } else {
         // If not 16kHz mono, it should fail (resampling not implemented yet)
         let result = audio.resample_to_mono_16khz();
-        assert!(result.is_err(),
-                "Resampling should fail for non-16kHz-mono files (not implemented)");
+        assert!(
+            result.is_err(),
+            "Resampling should fail for non-16kHz-mono files (not implemented)"
+        );
     }
 
     Ok(())
@@ -106,8 +122,12 @@ fn test_audio_file_samples_are_i16() -> Result<()> {
 
     // Verify samples are in valid i16 range
     for (i, &sample) in audio.samples.iter().take(100).enumerate() {
-        assert!(sample >= i16::MIN && sample <= i16::MAX,
-                "Sample {} at index {} is out of i16 range", sample, i);
+        assert!(
+            sample >= i16::MIN && sample <= i16::MAX,
+            "Sample {} at index {} is out of i16 range",
+            sample,
+            i
+        );
     }
 
     Ok(())
@@ -120,13 +140,19 @@ fn test_audio_file_interleaved_channels() -> Result<()> {
 
     // For stereo (2 channels), samples should be interleaved [L, R, L, R, ...]
     if audio.channels == 2 {
-        assert_eq!(audio.samples.len() % 2, 0,
-                   "Stereo audio should have even number of samples");
+        assert_eq!(
+            audio.samples.len() % 2,
+            0,
+            "Stereo audio should have even number of samples"
+        );
     }
 
     // Total samples should be divisible by channel count
-    assert_eq!(audio.samples.len() % audio.channels as usize, 0,
-               "Total samples should be divisible by channel count");
+    assert_eq!(
+        audio.samples.len() % audio.channels as usize,
+        0,
+        "Total samples should be divisible by channel count"
+    );
 
     Ok(())
 }

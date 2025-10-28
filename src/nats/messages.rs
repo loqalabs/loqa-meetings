@@ -4,11 +4,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AudioFrameMessage {
     pub session_id: String,
-    pub sequence: u32,  // Frame sequence number (matches loqa-core protocol)
-    pub pcm: String,  // Base64-encoded PCM bytes
+    pub sequence: u32, // Frame sequence number (matches loqa-core protocol)
+    pub pcm: String,   // Base64-encoded PCM bytes
     pub sample_rate: u32,
     pub channels: u16,
-    pub timestamp: String,  // RFC3339 timestamp
+    pub timestamp: String, // RFC3339 timestamp
     #[serde(rename = "final")]
     pub final_frame: bool,
 }

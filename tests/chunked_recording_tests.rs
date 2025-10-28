@@ -5,8 +5,8 @@
 
 use anyhow::Result;
 use loqa_meetings::audio::{AudioFrame, AudioStreamSource, ChunkConfig, ChunkedRecorder};
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 
@@ -28,9 +28,7 @@ async fn test_chunked_recording_creates_single_chunk() -> Result<()> {
     let (tx, rx) = mpsc::channel(100);
 
     // Spawn recording task
-    let recording_handle = tokio::spawn(async move {
-        recorder.record(rx).await
-    });
+    let recording_handle = tokio::spawn(async move { recorder.record(rx).await });
 
     // Send 5 seconds worth of audio frames (16kHz mono)
     // Each frame = 100ms = 1600 samples
@@ -68,7 +66,10 @@ async fn test_chunked_recording_creates_single_chunk() -> Result<()> {
 
     // Verify file exists
     assert!(chunk.file_path.exists(), "Chunk file should exist");
-    assert!(chunk.file_path.to_string_lossy().contains("test-meeting-chunk-000.wav"));
+    assert!(chunk
+        .file_path
+        .to_string_lossy()
+        .contains("test-meeting-chunk-000.wav"));
 
     // Verify file size is reasonable (not empty)
     let file_size = fs::metadata(&chunk.file_path)?.len();
@@ -95,9 +96,7 @@ async fn test_chunked_recording_splits_into_multiple_chunks() -> Result<()> {
     let (tx, rx) = mpsc::channel(100);
 
     // Spawn recording task
-    let recording_handle = tokio::spawn(async move {
-        recorder.record(rx).await
-    });
+    let recording_handle = tokio::spawn(async move { recorder.record(rx).await });
 
     // Send 5 seconds worth of audio frames
     // This should create 3 chunks: [0-2s], [2-4s], [4-5s]
@@ -122,30 +121,50 @@ async fn test_chunked_recording_splits_into_multiple_chunks() -> Result<()> {
     let metadata = recording_handle.await??;
 
     // Verify: Should have created 3 chunks
-    assert_eq!(metadata.len(), 3, "Should create 3 chunks for 5s recording with 2s chunks");
+    assert_eq!(
+        metadata.len(),
+        3,
+        "Should create 3 chunks for 5s recording with 2s chunks"
+    );
 
     // Verify chunk 0 (0-2s)
     assert_eq!(metadata[0].chunk_index, 0);
     assert_eq!(metadata[0].start_ms, 0);
-    assert!(metadata[0].end_ms >= 1900 && metadata[0].end_ms < 2100,
-            "Chunk 0 should end around 2s, got {}ms", metadata[0].end_ms);
+    assert!(
+        metadata[0].end_ms >= 1900 && metadata[0].end_ms < 2100,
+        "Chunk 0 should end around 2s, got {}ms",
+        metadata[0].end_ms
+    );
 
     // Verify chunk 1 (2-4s)
     assert_eq!(metadata[1].chunk_index, 1);
-    assert!(metadata[1].start_ms >= 1900 && metadata[1].start_ms < 2100,
-            "Chunk 1 should start around 2s, got {}ms", metadata[1].start_ms);
-    assert!(metadata[1].end_ms >= 3900 && metadata[1].end_ms < 4100,
-            "Chunk 1 should end around 4s, got {}ms", metadata[1].end_ms);
+    assert!(
+        metadata[1].start_ms >= 1900 && metadata[1].start_ms < 2100,
+        "Chunk 1 should start around 2s, got {}ms",
+        metadata[1].start_ms
+    );
+    assert!(
+        metadata[1].end_ms >= 3900 && metadata[1].end_ms < 4100,
+        "Chunk 1 should end around 4s, got {}ms",
+        metadata[1].end_ms
+    );
 
     // Verify chunk 2 (4-5s)
     assert_eq!(metadata[2].chunk_index, 2);
-    assert!(metadata[2].start_ms >= 3900 && metadata[2].start_ms < 4100,
-            "Chunk 2 should start around 4s, got {}ms", metadata[2].start_ms);
+    assert!(
+        metadata[2].start_ms >= 3900 && metadata[2].start_ms < 4100,
+        "Chunk 2 should start around 4s, got {}ms",
+        metadata[2].start_ms
+    );
     assert_eq!(metadata[2].end_ms, 4900); // Last frame timestamp
 
     // Verify all files exist
     for chunk in &metadata {
-        assert!(chunk.file_path.exists(), "Chunk {} file should exist", chunk.chunk_index);
+        assert!(
+            chunk.file_path.exists(),
+            "Chunk {} file should exist",
+            chunk.chunk_index
+        );
     }
 
     Ok(())
@@ -196,9 +215,7 @@ async fn test_chunked_recording_preserves_audio_format() -> Result<()> {
 
     let (tx, rx) = mpsc::channel(100);
 
-    let recording_handle = tokio::spawn(async move {
-        recorder.record(rx).await
-    });
+    let recording_handle = tokio::spawn(async move { recorder.record(rx).await });
 
     // Send frames with known sample rate and channels
     let sample_rate = 16000;
@@ -219,22 +236,28 @@ async fn test_chunked_recording_preserves_audio_format() -> Result<()> {
     let metadata = recording_handle.await??;
 
     // Verify audio format is preserved
-    assert_eq!(metadata[0].sample_rate, sample_rate, "Sample rate should be preserved");
-    assert_eq!(metadata[0].channels, channels, "Channel count should be preserved");
+    assert_eq!(
+        metadata[0].sample_rate, sample_rate,
+        "Sample rate should be preserved"
+    );
+    assert_eq!(
+        metadata[0].channels, channels,
+        "Channel count should be preserved"
+    );
 
     Ok(())
 }
 
 #[test]
 fn test_chunk_config_creation() {
-    let config = ChunkConfig::new(
-        "test-meeting".to_string(),
-        PathBuf::from("/tmp/test"),
-    );
+    let config = ChunkConfig::new("test-meeting".to_string(), PathBuf::from("/tmp/test"));
 
     assert_eq!(config.meeting_id, "test-meeting");
     assert_eq!(config.output_dir, PathBuf::from("/tmp/test"));
-    assert_eq!(config.chunk_duration_secs, 300, "Default chunk duration should be 5 minutes");
+    assert_eq!(
+        config.chunk_duration_secs, 300,
+        "Default chunk duration should be 5 minutes"
+    );
 }
 
 #[test]

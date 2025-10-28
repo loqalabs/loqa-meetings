@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
                 }
             }
             Ok(None) => break, // Subscription closed
-            Err(_) => {} // Timeout - no transcript yet
+            Err(_) => {}       // Timeout - no transcript yet
         }
 
         chunk_index += 1;

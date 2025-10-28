@@ -122,7 +122,10 @@ async fn main() -> Result<()> {
             println!("\n📊 Results:");
             println!("   - File: {}", output_file.display());
             println!("   - Duration: {:.1}s", duration_secs);
-            println!("   - Format: {}Hz, {} channels (stereo)", sample_rate, channels);
+            println!(
+                "   - Format: {}Hz, {} channels (stereo)",
+                sample_rate, channels
+            );
             println!("   - Size: {:.1} KB", file_size as f64 / 1024.0);
             println!("\n🎧 Test the file:");
             println!("   - System audio should play from LEFT speaker");

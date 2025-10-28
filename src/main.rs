@@ -1,31 +1,32 @@
 use anyhow::Result;
-use loqa_meetings::{AudioFile, Config};
+use loqa_meetings::{create_router, AppState};
 use tracing::info;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Initialize logging
     tracing_subscriber::fmt::init();
 
-    let cfg = Config::load("config/loqa-meetings")?;
+    info!("🎙️  Loqa Meetings v0.1.0 - HTTP API Server");
 
-    info!("Loqa Meetings v0.1.0");
-    info!("Loaded config: {}", cfg.service.name);
-    info!("HTTP server will bind to {}:{}", cfg.service.http.bind, cfg.service.http.port);
-    info!("Obsidian vault: {}", cfg.obsidian.vault_path);
-    info!("Week 1: Audio file processing");
+    // Create application state
+    let app_state = AppState::new();
 
-    // Test with a fixture audio file if it exists
-    let fixture_path = "tests/fixtures/sample-meeting.wav";
-    if std::path::Path::new(fixture_path).exists() {
-        let audio = AudioFile::open(fixture_path)?;
+    // Create HTTP router
+    let app = create_router(app_state);
 
-        info!("Successfully loaded audio file!");
-        info!("Duration: {:.1} seconds", audio.duration_seconds);
-        info!("Sample rate: {} Hz", audio.sample_rate);
-        info!("Channels: {}", audio.channels);
-    } else {
-        info!("No test fixture found at {}", fixture_path);
-        info!("To test audio reading, place a .wav file at: {}", fixture_path);
-    }
+    // Start HTTP server
+    let addr = "127.0.0.1:3000";
+    info!("🌐 Starting HTTP server on http://{}", addr);
+    info!("📋 API endpoints:");
+    info!("   POST   /meetings/record/start");
+    info!("   POST   /meetings/record/stop/:meeting_id");
+    info!("   GET    /meetings/:meeting_id/status");
+    info!("   GET    /meetings/:meeting_id/transcript");
+    info!("   GET    /health");
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
 
     Ok(())
 }

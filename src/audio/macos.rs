@@ -4,8 +4,8 @@ use anyhow::{bail, Result};
 use tokio::sync::mpsc;
 use tracing::info;
 
-use crate::screencapture;
 use super::backend::{AudioBackend, AudioBackendConfig, AudioFrame};
+use crate::screencapture;
 
 /// macOS audio backend
 ///
