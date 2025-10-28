@@ -5,8 +5,8 @@ pub mod recording;
 pub mod screencapture;
 
 pub use audio::{
-    AudioBackend, AudioBackendConfig, AudioBackendFactory, AudioFile, AudioFrame, AudioMixer,
-    AudioSource, AudioStreamSource, ChunkConfig, ChunkMetadata, ChunkedRecorder, MixerConfig,
+    AudioBackend, AudioBackendConfig, AudioBackendFactory, AudioFile, AudioFrame,
+    AudioSource, AudioStreamSource, ChunkConfig, ChunkMetadata, ChunkedRecorder,
 };
 pub use config::Config;
 pub use nats::{AudioFrameMessage, NatsClient, TranscriptMessage};
