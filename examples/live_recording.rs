@@ -1,6 +1,10 @@
 use anyhow::Result;
 use futures::stream::StreamExt;
-use loqa_meetings::{AudioBackendConfig, AudioBackendFactory, AudioSource, NatsClient, TranscriptMessage};
+use loqa_meetings::{
+    AudioBackendConfig, AudioBackendFactory, AudioSource, AudioMixer, AudioStreamSource,
+    MixerConfig, NatsClient, TranscriptMessage,
+};
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -72,18 +76,45 @@ async fn main() -> Result<()> {
         info!("✅ Received {} transcripts total", transcript_count);
     });
 
-    // 5. Start capturing audio
+    // 5. Create audio mixer for combining system audio + microphone
+    let mut enabled_sources = HashSet::new();
+    enabled_sources.insert(AudioStreamSource::System);
+    enabled_sources.insert(AudioStreamSource::Microphone);
+
+    let mixer_config = MixerConfig {
+        sample_rate: 16000,
+        channels: 1,
+        max_buffer_delay_ms: 200,
+        enabled_sources,
+    };
+    let mut mixer = AudioMixer::new(mixer_config);
+
+    info!("🎚️  Audio mixer configured (System + Microphone)");
+
+    // 6. Start capturing audio
     info!("🎤 Starting audio capture for 15 seconds...");
-    info!("💬 Please speak into your microphone or play some audio!");
+    info!("💬 Speak into your microphone AND/OR play system audio!");
     info!("");
 
-    let mut audio_rx = backend.start().await?;
-    let mut chunk_index = 0;
+    let audio_rx = backend.start().await?;
     let start_time = tokio::time::Instant::now();
     let recording_duration = Duration::from_secs(15);
 
-    // 6. Publish audio frames to NATS
-    while let Some(frame) = audio_rx.recv().await {
+    // 7. Spawn mixer task to produce mixed frames
+    let (mixed_tx, mut mixed_rx) = tokio::sync::mpsc::channel(100);
+    let mix_handle = tokio::spawn(async move {
+        let mixed_frames = mixer.mix(audio_rx).await?;
+        for frame in mixed_frames {
+            if mixed_tx.send(frame).await.is_err() {
+                break;
+            }
+        }
+        Ok::<_, anyhow::Error>(())
+    });
+
+    // 8. Publish mixed audio frames to NATS
+    let mut chunk_index = 0;
+    while let Some(frame) = mixed_rx.recv().await {
         // Convert samples to bytes
         let pcm_bytes: Vec<u8> = frame.samples.iter().flat_map(|&s| s.to_le_bytes()).collect();
 
@@ -112,11 +143,17 @@ async fn main() -> Result<()> {
         }
     }
 
-    // 7. Stop backend
+    // 9. Stop backend
     backend.stop().await?;
     info!("⏹️  Audio capture stopped");
 
-    // 8. Wait for final transcripts
+    // 10. Wait for mixer task to finish
+    info!("⏳ Waiting for mixer to finish processing...");
+    if let Err(e) = mix_handle.await? {
+        info!("⚠️  Mixer task error: {}", e);
+    }
+
+    // 11. Wait for final transcripts
     info!("⏳ Waiting for final transcripts (5s)...");
     sleep(Duration::from_secs(5)).await;
 
