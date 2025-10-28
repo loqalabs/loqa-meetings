@@ -56,9 +56,10 @@ fn downsample_frame(frame: AudioFrame, target_rate: u32) -> AudioFrame {
     }
 }
 
-/// Convert stereo to mono by averaging left and right channels
+/// Convert stereo to mono by summing left and right channels
 /// Input samples are interleaved: [L, R, L, R, ...]
 /// Output is mono: [M, M, M, ...]
+/// Note: Does NOT average (no division) to preserve volume when one channel is silent
 fn stereo_to_mono(frame: AudioFrame) -> AudioFrame {
     if frame.channels == 1 {
         return frame; // Already mono
@@ -72,10 +73,13 @@ fn stereo_to_mono(frame: AudioFrame) -> AudioFrame {
     let mut mono_samples = Vec::with_capacity(frame.samples.len() / 2);
 
     // Process pairs of samples (left, right)
+    // Sum without dividing to preserve volume when one channel is silent
     for chunk in frame.samples.chunks_exact(2) {
         let left = chunk[0] as i32;
         let right = chunk[1] as i32;
-        let mono = ((left + right) / 2) as i16;
+        let sum = left + right;
+        // Clamp to prevent overflow
+        let mono = sum.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
         mono_samples.push(mono);
     }
 
