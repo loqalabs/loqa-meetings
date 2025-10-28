@@ -19,6 +19,7 @@
 
 use anyhow::Result;
 use futures::stream::StreamExt;
+use hound::{WavSpec, WavWriter};
 use loqa_meetings::{AudioBackendConfig, AudioBackendFactory, AudioFrame, AudioSource, NatsClient, TranscriptMessage};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -174,6 +175,9 @@ async fn main() -> Result<()> {
     let mut last_sample_rate = 16000;
     let mut last_channels = 2;
 
+    // Collect all processed samples for debugging
+    let mut all_processed_samples: Vec<i16> = Vec::new();
+
     tokio::pin!(audio_rx);
     'outer: loop {
         // Check if we've exceeded recording duration
@@ -190,6 +194,9 @@ async fn main() -> Result<()> {
 
                 // Convert from stereo to mono (Whisper expects mono)
                 let mono = stereo_to_mono(downsampled);
+
+                // Collect samples for debugging WAV file
+                all_processed_samples.extend_from_slice(&mono.samples);
 
                 // Convert samples to bytes
                 let pcm_bytes: Vec<u8> = mono
@@ -267,6 +274,27 @@ async fn main() -> Result<()> {
     info!("");
     info!("🏁 Live recording test complete!");
     info!("📊 Total frames published: {}", chunk_index);
+
+    // Save processed audio to WAV file for debugging
+    if !all_processed_samples.is_empty() {
+        let output_path = shellexpand::tilde("~/.loqa/recordings/processed-16khz-mono.wav");
+        std::fs::create_dir_all(std::path::Path::new(output_path.as_ref()).parent().unwrap())?;
+
+        let spec = WavSpec {
+            channels: 1,
+            sample_rate: 16000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+
+        let mut writer = WavWriter::create(output_path.as_ref(), spec)?;
+        for sample in all_processed_samples {
+            writer.write_sample(sample)?;
+        }
+        writer.finalize()?;
+
+        info!("💾 Saved processed audio to: {}", output_path);
+    }
 
     Ok(())
 }
